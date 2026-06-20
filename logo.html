@@ -106,7 +106,7 @@
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 14px;
-      padding: 0 28px 28px;
+      padding: 0 28px 18px;
     }
 
     .field {
@@ -121,7 +121,8 @@
       font-weight: 700;
     }
 
-    input, select {
+    input,
+    select {
       width: 100%;
       height: 40px;
       border: 1px solid var(--line);
@@ -133,7 +134,14 @@
       outline: none;
     }
 
-    input:focus, select:focus {
+    input:disabled {
+      background: #f2f6f9;
+      color: #8aa0b3;
+      cursor: not-allowed;
+    }
+
+    input:focus,
+    select:focus {
       border-color: var(--cyan);
       box-shadow: 0 0 0 3px rgba(0, 184, 212, 0.14);
     }
@@ -148,6 +156,17 @@
     .check-row input {
       width: 18px;
       height: 18px;
+    }
+
+    .size-info {
+      padding: 0 28px 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .size-info strong {
+      color: var(--navy);
     }
 
     .actions {
@@ -226,7 +245,7 @@
 <body>
   <header>
     <h1>EthenWorks｜一东工坊 Logo 导出工具</h1>
-    <p class="sub">已去掉“一东工坊”前后所有横杠：SVG 矢量预览 + 源码显示 + 任意尺寸 PNG/SVG 导出 + 透明背景 + 紧凑裁剪。</p>
+    <p class="sub">SVG 矢量预览 + 源码显示 + 任意尺寸 PNG/SVG 导出 + 透明背景 + 紧凑裁剪。</p>
   </header>
 
   <main>
@@ -248,7 +267,7 @@
 
         <div class="field">
           <label for="exportHeight">导出高度 px</label>
-          <input id="exportHeight" type="number" value="720" min="16" step="1" />
+          <input id="exportHeight" type="number" value="451" min="16" step="1" />
         </div>
 
         <div class="field">
@@ -277,6 +296,8 @@
         </div>
       </div>
 
+      <div class="size-info" id="sizeInfo"></div>
+
       <div class="actions">
         <button onclick="downloadSvg()">下载 SVG</button>
         <button class="secondary" onclick="downloadPng()">导出 PNG</button>
@@ -284,7 +305,7 @@
       </div>
 
       <div class="hint">
-        建议：网页/PPT 用“紧凑裁剪 + 透明背景”；软件图标用“只导出左侧 EW 图标”；印刷或设计软件继续使用 SVG。
+        说明：勾选“按裁剪比例自动高度”时，只需要输入宽度，高度会自动计算；取消勾选后，PNG 会严格按照你输入的宽高导出。输入过程中不会强制改成 16，只有失焦或导出时才会校正最小值。
       </div>
     </section>
 
@@ -308,15 +329,52 @@
       wordmark: { x: 620, y: 112, w: 516, h: 176 }
     };
 
-    function getOptions() {
+    function readNumber(value, fallback) {
+      if (String(value).trim() === "") {
+        return fallback;
+      }
+
+      const number = Math.round(Number(value));
+
+      if (!Number.isFinite(number)) {
+        return fallback;
+      }
+
+      return number;
+    }
+
+    function clampNumber(value, fallback, min, max) {
+      let number = readNumber(value, fallback);
+
+      if (typeof min === "number") {
+        number = Math.max(min, number);
+      }
+
+      if (typeof max === "number") {
+        number = Math.min(max, number);
+      }
+
+      return number;
+    }
+
+    function getOptions(normalize = false) {
       const cropMode = document.getElementById("cropMode").value;
-      const padding = Number(document.getElementById("padding").value || 0);
-      const transparent = document.getElementById("transparent").checked;
-      const autoRatio = document.getElementById("autoRatio").checked;
+      const paddingInput = document.getElementById("padding");
       const widthInput = document.getElementById("exportWidth");
       const heightInput = document.getElementById("exportHeight");
 
+      let padding = readNumber(paddingInput.value, 24);
+
+      if (normalize) {
+        padding = clampNumber(paddingInput.value, 24, 0, 200);
+        paddingInput.value = padding;
+      }
+
+      const transparent = document.getElementById("transparent").checked;
+      const autoRatio = document.getElementById("autoRatio").checked;
+
       const base = viewBoxes[cropMode];
+
       const box = {
         x: base.x - padding,
         y: base.y - padding,
@@ -324,9 +382,32 @@
         h: base.h + padding * 2
       };
 
+      let width = readNumber(widthInput.value, 2400);
+
+      if (normalize) {
+        width = clampNumber(widthInput.value, 2400, 16);
+        widthInput.value = width;
+      }
+
+      let height;
+
       if (autoRatio) {
-        const width = Number(widthInput.value || 2400);
-        heightInput.value = Math.round(width * box.h / box.w);
+        height = Math.round(width * box.h / box.w);
+
+        if (normalize) {
+          height = clampNumber(height, 720, 16);
+        }
+
+        heightInput.value = height;
+        heightInput.disabled = true;
+      } else {
+        heightInput.disabled = false;
+        height = readNumber(heightInput.value, 720);
+
+        if (normalize) {
+          height = clampNumber(heightInput.value, 720, 16);
+          heightInput.value = height;
+        }
       }
 
       return {
@@ -334,14 +415,15 @@
         padding,
         transparent,
         autoRatio,
-        width: Number(widthInput.value || 2400),
-        height: Number(heightInput.value || 720),
+        width,
+        height,
         box
       };
     }
 
-    function buildSvg() {
-      const opt = getOptions();
+    function buildSvg(normalize = false) {
+      const opt = getOptions(normalize);
+
       const bgRect = opt.transparent
         ? ""
         : `  <rect x="${opt.box.x}" y="${opt.box.y}" width="${opt.box.w}" height="${opt.box.h}" fill="#FFFFFF"/>`;
@@ -388,39 +470,63 @@ ${bgRect}
 </svg>`;
     }
 
-    function render() {
-      const svg = buildSvg();
+    function render(normalize = false) {
+      const svg = buildSvg(normalize);
+      const opt = getOptions(false);
+
       document.getElementById("preview").innerHTML = svg;
       document.getElementById("svgCode").value = svg;
+
+      document.getElementById("sizeInfo").innerHTML =
+        `当前导出尺寸：<strong>${opt.width} × ${opt.height} px</strong>，裁剪模式：<strong>${opt.cropMode}</strong>`;
     }
 
     function downloadText(filename, text, mime) {
       const blob = new Blob([text], { type: mime });
       const url = URL.createObjectURL(blob);
+
       const a = document.createElement("a");
       a.href = url;
       a.download = filename;
+
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
+
       URL.revokeObjectURL(url);
     }
 
     function downloadSvg() {
-      downloadText("ethenworks-logo.svg", buildSvg(), "image/svg+xml;charset=utf-8");
+      const opt = getOptions(true);
+      const filename = `ethenworks-logo-${opt.cropMode}-${opt.width}x${opt.height}-${Date.now()}.svg`;
+
+      downloadText(filename, buildSvg(true), "image/svg+xml;charset=utf-8");
+      render(false);
     }
 
     function downloadPng() {
-      const opt = getOptions();
-      const svg = buildSvg();
+      const opt = getOptions(true);
+      const svg = buildSvg(true);
+
       const svgBlob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
       const url = URL.createObjectURL(svgBlob);
 
       const img = new Image();
+
       img.onload = function () {
         const canvas = document.createElement("canvas");
+
         canvas.width = opt.width;
         canvas.height = opt.height;
 
         const ctx = canvas.getContext("2d");
+
+        if (!ctx) {
+          URL.revokeObjectURL(url);
+          alert("Canvas 初始化失败，无法导出 PNG。");
+          return;
+        }
+
         if (!opt.transparent) {
           ctx.fillStyle = "#FFFFFF";
           ctx.fillRect(0, 0, opt.width, opt.height);
@@ -431,12 +537,23 @@ ${bgRect}
         URL.revokeObjectURL(url);
 
         canvas.toBlob(function (blob) {
+          if (!blob) {
+            alert("PNG 生成失败。可以先下载 SVG，再用浏览器或 Inkscape 转 PNG。");
+            return;
+          }
+
           const pngUrl = URL.createObjectURL(blob);
           const a = document.createElement("a");
+
           a.href = pngUrl;
-          a.download = `ethenworks-logo-${opt.width}x${opt.height}.png`;
+          a.download = `ethenworks-logo-${opt.cropMode}-${opt.width}x${opt.height}-${Date.now()}.png`;
+
+          document.body.appendChild(a);
           a.click();
+          document.body.removeChild(a);
+
           URL.revokeObjectURL(pngUrl);
+          render(false);
         }, "image/png");
       };
 
@@ -449,7 +566,8 @@ ${bgRect}
     }
 
     async function copySvg() {
-      const svg = buildSvg();
+      const svg = buildSvg(true);
+
       try {
         await navigator.clipboard.writeText(svg);
         alert("SVG 代码已复制。");
@@ -460,6 +578,8 @@ ${bgRect}
         document.execCommand("copy");
         alert("SVG 代码已复制。");
       }
+
+      render(false);
     }
 
     function selectCode() {
@@ -470,24 +590,52 @@ ${bgRect}
 
     function resetOptions() {
       document.getElementById("exportWidth").value = 2400;
-      document.getElementById("exportHeight").value = 720;
+      document.getElementById("exportHeight").value = 451;
       document.getElementById("cropMode").value = "tight";
       document.getElementById("padding").value = 24;
       document.getElementById("transparent").checked = true;
       document.getElementById("autoRatio").checked = true;
-      render();
+
+      render(true);
     }
 
-    ["exportWidth", "exportHeight", "cropMode", "padding", "transparent", "autoRatio"].forEach(id => {
-      document.addEventListener("input", event => {
-        if (event.target && event.target.id === id) render();
+    [
+      "exportWidth",
+      "exportHeight",
+      "padding"
+    ].forEach(id => {
+      const element = document.getElementById(id);
+
+      element.addEventListener("input", function () {
+        render(false);
       });
-      document.addEventListener("change", event => {
-        if (event.target && event.target.id === id) render();
+
+      element.addEventListener("change", function () {
+        render(true);
+      });
+
+      element.addEventListener("blur", function () {
+        render(true);
       });
     });
 
-    render();
+    [
+      "cropMode",
+      "transparent",
+      "autoRatio"
+    ].forEach(id => {
+      const element = document.getElementById(id);
+
+      element.addEventListener("input", function () {
+        render(true);
+      });
+
+      element.addEventListener("change", function () {
+        render(true);
+      });
+    });
+
+    render(true);
   </script>
 </body>
 </html>
